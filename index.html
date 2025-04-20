@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redtml: Turn thoughts into code. Create in Realtime.</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/material-darker.min.css">
+    <!-- Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom Styles */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* CodeMirror specific styles */
+        .CodeMirror {
+            height: 100% !important; /* Ensure CM fills container */
+            font-size: 14px;
+            border: none;
+        }
+        /* Theme overrides if needed */
+        .cm-s-material-darker.CodeMirror {
+             background-color: #263238; /* Match theme bg or use Tailwind bg-gray-800/900 */
+        }
+
+        /* Ensure editor container allows CodeMirror to fill it */
+        #editor-container {
+             flex-grow: 1;
+             position: relative;
+             overflow: hidden; /* Important for CM height */
+        }
+
+        /* Resizer visual cue */
+        #resizer::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 40%;
+            bottom: 40%;
+            width: 2px;
+            background-color: rgba(255, 255, 255, 0.2);
+            transform: translateX(-50%);
+            border-radius: 1px;
+            display: none; /* Hide by default */
+        }
+        /* Show cue only on large screens */
+        @media (min-width: 1024px) {
+             #resizer::before {
+                 display: block;
+             }
+        }
+
+
+        /* Custom Scrollbar Styling (Webkit for CodeMirror) */
+        .CodeMirror-scrollbar-filler, .CodeMirror-gutter-filler {
+            background-color: #263238; /* Match CodeMirror background */
+        }
+        .CodeMirror-vscrollbar::-webkit-scrollbar,
+        .CodeMirror-hscrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .CodeMirror-vscrollbar::-webkit-scrollbar-track,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-track {
+            background: #263238; /* Match CodeMirror background */
+            border-left: 1px solid #37474F; /* Subtle border */
+        }
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb {
+            background: #546E7A; /* Darker scrollbar thumb */
+            border-radius: 4px;
+        }
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb:hover,
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb:hover {
+            background: #78909C; /* Lighter thumb on hover */
+        }
+
+        /* Fullscreen specific styles */
+        #right-pane:-webkit-full-screen { background-color: #111827; } /* bg-gray-900 */
+        #right-pane:-moz-full-screen { background-color: #111827; }
+        #right-pane:-ms-fullscreen { background-color: #111827; }
+        #right-pane:fullscreen { background-color: #111827; }
+
+        #right-pane:fullscreen #artifact-controls { /* Use artifact-controls ID */
+            position: fixed; /* Use fixed positioning in fullscreen */
+            top: 10px;
+            right: 10px;
+            z-index: 100; /* Ensure it's above iframe */
+        }
+         #right-pane:fullscreen #artifact-frame {
+             height: 100vh; /* Ensure iframe fills fullscreen view */
+             width: 100vw;
+         }
+
+         /* Loading indicator style */
+         .loader {
+            border: 2px solid #f3f3f3; /* Light grey */
+            border-top: 2px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            animation: spin 1s linear infinite;
+            /* margin-right: 6px; Removed to center it when text is hidden */
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Style for the send button when loading */
+        #send-button.loading #send-button-text,
+        #send-button.loading .fa-paper-plane {
+            display: none;
+        }
+        #send-button.loading #loading-indicator {
+            display: block;
+            margin: 0; /* Remove margin when loader is shown */
+        }
+
+         /* Styling for the URL missing warning */
+         .function-url-warning {
+             position: absolute;
+             top: 0;
+             left: 0;
+             right: 0;
+             background-color: #dc2626; /* red-600 */
+             color: white;
+             padding: 0.5rem;
+             text-align: center;
+             font-size: 0.875rem; /* text-sm */
+             z-index: 50;
+         }
+         .function-url-warning strong {
+            font-weight: 700; /* font-bold */
+         }
+         .function-url-warning button {
+             margin-left: 1rem; /* ml-4 */
+             font-weight: 700; /* font-bold */
+             background: none;
+             border: none;
+             color: inherit;
+             cursor: pointer;
+         }
+
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex flex-col h-screen overflow-hidden">
+
+    <!-- Main container: Vertical stack on small, horizontal on large -->
+    <div id="container" class="flex flex-col lg:flex-row flex-1 overflow-hidden">
+
+        <!-- Left Pane (Editor + Input) -->
+        <div class="flex flex-col w-full lg:w-1/2 h-1/2 lg:h-full bg-gray-800 border-b lg:border-b-0 lg:border-r border-gray-700" id="left-pane">
+            <!-- Editor Area -->
+            <div id="editor-container" class="flex-grow relative">
+                <textarea id="html-editor"></textarea>
+            </div>
+            <!-- Input Area -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center p-3 border-t border-gray-700 bg-gray-800 shrink-0 space-y-2 sm:space-y-0 sm:space-x-2">
+                <input type="text" id="message-input" placeholder="Feed me a concept. I shall spit out code!" class="flex-grow p-2 border border-gray-600 bg-gray-700 text-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm">
+                <button id="send-button" class="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed transition duration-200 shrink-0 text-sm font-medium flex items-center justify-center min-w-[90px]">
+                    <i class="fas fa-paper-plane mr-1.5 text-xs"></i>
+                    <span id="send-button-text">Send</span>
+                    <div id="loading-indicator" class="loader hidden"></div>
+                </button>
+            </div>
+        </div>
+
+        <!-- Resizer (Visible only on large screens) -->
+        <div class="hidden lg:flex items-center justify-center w-2 cursor-col-resize bg-gray-600 hover:bg-cyan-500 transition-colors duration-200 relative" id="resizer">
+             <!-- Visual cue added via CSS pseudo-element -->
+        </div>
+
+        <!-- Right Pane (Artifact) -->
+        <div class="flex flex-col flex-grow w-full lg:flex-1 h-1/2 lg:h-full bg-gray-900 relative" id="right-pane">
+             <!-- Controls (Reload, Download, and Fullscreen Buttons) -->
+             <div id="artifact-controls" class="absolute top-2 right-2 z-10 flex space-x-2">
+                <button id="reload-button" class="px-3 py-1 bg-gray-700 bg-opacity-80 backdrop-blur-sm text-gray-200 border border-gray-600 rounded hover:bg-gray-600 hover:border-gray-500 transition text-xs flex items-center">
+                   <i class="fas fa-sync-alt mr-1"></i> Reload
+                </button>
+                <button id="download-button" class="px-3 py-1 bg-gray-700 bg-opacity-80 backdrop-blur-sm text-gray-200 border border-gray-600 rounded hover:bg-gray-600 hover:border-gray-500 transition text-xs flex items-center">
+                   <i class="fas fa-download mr-1"></i> Download
+                </button>
+                <button id="fullscreen-button" class="px-3 py-1 bg-gray-700 bg-opacity-80 backdrop-blur-sm text-gray-200 border border-gray-600 rounded hover:bg-gray-600 hover:border-gray-500 transition text-xs flex items-center">
+                   <i class="fas fa-expand mr-1"></i> Fullscreen
+                </button>
+            </div>
+            <!-- Artifact Iframe -->
+            <iframe id="artifact-frame" title="Rendered HTML Artifact" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" class="w-full h-full border-none bg-white"></iframe>
+        </div>
+
+    </div>
+
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/htmlmixed/htmlmixed.min.js"></script>
+
+    <script>
+        // --- Supabase Edge Function URL ---
+        // 1. Deploy your Gemini proxy function on Supabase Edge Functions using the provided index.ts code.
+        // 2. Get the URL from the Supabase dashboard or CLI output (e.g., `https://<your-project-ref>.supabase.co/functions/v1/gemini-proxy`).
+        // 3. PASTE YOUR FUNCTION URL BELOW.
+        // Your Gemini API Key and custom prompt are now handled securely on the server side.
+        const SUPABASE_FUNCTION_URL = "https://vfqqvdadcafcmviskiwe.supabase.co/functions/v1/smooth-worker"; // <--- PASTE YOUR FUNCTION URL HERE
+
+        // Function to show a warning if the function URL hasn't been updated
+        const checkFunctionUrl = () => {
+             if (!SUPABASE_FUNCTION_URL || SUPABASE_FUNCTION_URL.includes('<your-project-ref>')) {
+                 console.warn("Supabase Edge Function URL not set. Please deploy the function and add its URL to the script.");
+                 const warningDiv = document.createElement('div');
+                 warningDiv.className = 'function-url-warning';
+                 warningDiv.innerHTML = `
+                    <strong>Warning:</strong> Supabase Edge Function URL is not set. Please deploy the function and add its URL to the script.
+                    <button onclick="this.parentElement.remove()">×</button>
+                 `;
+                 // Avoid adding multiple warnings
+                 if (!document.querySelector('.function-url-warning')) {
+                    document.body.prepend(warningDiv);
+                 }
+                 return true; // URL is missing/placeholder
+             }
+              // Remove existing warning if URL is now present
+             const existingWarning = document.querySelector('.function-url-warning');
+             if (existingWarning) {
+                 existingWarning.remove();
+             }
+             return false; // URL seems set
+        };
+        checkFunctionUrl(); // Check on load
+
+
+        // --- Initial Sample HTML ---
+        const initialHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live HTML Sandbox</title>
+     <script src="https://cdn.tailwindcss.com"><\/script> <!-- Escaped script tag -->
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+        body {
+            font-family: 'Poppins', sans-serif;
+            transition: background 0.5s ease;
+        }
+        /* Adding a default dark theme using Tailwind inside the iframe */
+        body.dark-theme {
+           background: linear-gradient(135deg, #2c3e50, #1a202c);
+           color: #e2e8f0; /* gray-200 */
+        }
+        body.light-theme {
+           background: linear-gradient(135deg, #e0f2f7, #ffffff);
+           color: #2d3748; /* gray-800 */
+        }
+    </style>
+</head>
+<body class="dark-theme min-h-screen flex items-center justify-center p-5 sm:p-10">
+    <div class="bg-black bg-opacity-30 backdrop-blur-sm p-6 sm:p-10 rounded-xl shadow-xl max-w-2xl text-center border border-gray-700">
+        <h1 class="text-3xl sm:text-4xl font-bold mb-4 text-white">
+           <i class="fas fa-code mr-2 text-cyan-400"></i> HTML Live Sandbox
+        </h1>
+        <p class="text-base sm:text-lg mb-4 text-white-300 leading-relaxed">
+            Instantly bring your <strong class="text-cyan-400 font-semibold">HTML</strong>, <strong class="text-cyan-400 font-semibold">CSS</strong> (also Tailwind), and
+            <strong class="text-cyan-400 font-semibold">JavaScript</strong> ideas to life! Write code in the editor.
+        </p>
+        <p class="text-sm sm:text-base mb-6 text-white-400">
+            Use the chatbox to ask me to generate or modify your HTML page!
+        </p>
+         <div class="text-xs text-gray-500 mb-4">
+            Example: Modify <code class="bg-gray-700 text-green-300 px-1.5 py-0.5 rounded text-xs">body</code> class to <code class="bg-gray-700 text-green-300 px-1.5 py-0.5 rounded text-xs">light-theme</code>
+        </div>
+        <button onclick="toggleTheme()" class="bg-cyan-600 hover:bg-cyan-700 text-white font-medium py-2 px-5 rounded-lg transition duration-200 text-sm">
+            Toggle Theme
+        </button>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            const body = document.body;
+            if (body.classList.contains('dark-theme')) {
+                body.classList.remove('dark-theme');
+                body.classList.add('light-theme');
+            } else {
+                body.classList.remove('light-theme');
+                body.classList.add('dark-theme');
+            }
+        }
+    <\/script> <!-- Escaped script tag -->
+</body>
+</html>`;
+
+        // --- CodeMirror Initialization ---
+        const editor = CodeMirror.fromTextArea(document.getElementById('html-editor'), {
+            lineNumbers: true,
+            mode: 'htmlmixed',
+            theme: 'material-darker',
+            lineWrapping: true,
+            autoCloseTags: true,
+            matchBrackets: true,
+        });
+        editor.setValue(initialHtml);
+
+        // --- Iframe Reference ---
+        const iframe = document.getElementById('artifact-frame');
+
+        // --- Debounce Function ---
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // --- Update Iframe Content ---
+        const updatePreview = debounce(() => {
+            try {
+                const htmlContent = editor.getValue();
+                // Use srcdoc for security and to avoid history entries
+                iframe.srcdoc = htmlContent;
+            } catch (e) {
+                console.error("Error updating preview:", e);
+                 iframe.srcdoc = `<html lang="en"><body class="bg-red-100 p-4"><pre class="text-red-700 font-mono text-sm">Error rendering HTML:\n${e.message}</pre></body></html>`;
+            }
+        }, 300); // Debounce time in ms
+
+        // Update preview on editor changes
+        editor.on('change', updatePreview);
+
+        // Initial render
+        // Use a slight delay to ensure iframe is ready
+        setTimeout(updatePreview, 50);
+
+        // --- Resizer Logic ---
+        const resizer = document.getElementById('resizer');
+        const leftPane = document.getElementById('left-pane');
+        const rightPane = document.getElementById('right-pane');
+        const container = document.getElementById('container');
+
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            if (window.getComputedStyle(resizer).display === 'none') return;
+            isResizing = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            iframe.style.pointerEvents = 'none'; // Disable iframe events during resize
+            e.preventDefault(); // Prevent text selection etc.
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const containerRect = container.getBoundingClientRect();
+            const pointerRelativeX = e.clientX - containerRect.left;
+            const totalWidth = containerRect.width;
+            let newLeftBasis = (pointerRelativeX / totalWidth) * 100;
+
+            const minLeftPx = 200; // Minimum pixel width for left pane
+            const minRightPx = 200; // Minimum pixel width for right pane
+            const resizerWidthPx = resizer.offsetWidth || 8; // Get resizer width, default to 8
+
+            const minLeftBasis = (minLeftPx / totalWidth) * 100;
+            const minRightBasis = (minRightPx / totalWidth) * 100;
+            const resizerBasis = (resizerWidthPx / totalWidth) * 100;
+            const maxLeftBasis = 100 - minRightBasis - resizerBasis;
+
+            // Constrain the resize within min/max limits
+            if (newLeftBasis < minLeftBasis) newLeftBasis = minLeftBasis;
+            else if (newLeftBasis > maxLeftBasis) newLeftBasis = maxLeftBasis;
+
+            leftPane.style.flexBasis = `${newLeftBasis}%`;
+            // Trigger a refresh on the editor to adjust its layout within the changing container
+            editor.refresh();
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                document.body.style.cursor = 'default';
+                document.body.style.removeProperty('user-select'); // Re-enable user select
+                iframe.style.pointerEvents = 'auto'; // Re-enable iframe events
+                editor.refresh(); // Final refresh after resize ends
+            }
+        });
+
+         // --- Fullscreen Logic ---
+        const fullscreenButton = document.getElementById('fullscreen-button');
+        const fullscreenTarget = rightPane; // Target the right pane for fullscreen
+
+        fullscreenButton.addEventListener('click', () => {
+            // Check if currently in fullscreen for the target element
+            const isInFullscreen = document.fullscreenElement === fullscreenTarget ||
+                                   document.webkitFullscreenElement === fullscreenTarget ||
+                                   document.msFullscreenElement === fullscreenTarget;
+
+            if (!isInFullscreen) {
+                // Enter fullscreen
+                if (fullscreenTarget.requestFullscreen) fullscreenTarget.requestFullscreen();
+                else if (fullscreenTarget.webkitRequestFullscreen) fullscreenTarget.webkitRequestFullscreen();
+                else if (fullscreenTarget.msRequestFullscreen) fullscreenTarget.msRequestFullscreen();
+            } else {
+                // Exit fullscreen
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
+            }
+        });
+
+        // Update button text based on fullscreen state
+        const updateFullscreenButton = () => {
+             const isInFullscreen = document.fullscreenElement === fullscreenTarget ||
+                                   document.webkitFullscreenElement === fullscreenTarget ||
+                                   document.msFullscreenElement === fullscreenTarget;
+
+             if (isInFullscreen) {
+                 fullscreenButton.innerHTML = '<i class="fas fa-compress mr-1"></i> Exit';
+             } else {
+                 fullscreenButton.innerHTML = '<i class="fas fa-expand mr-1"></i> Fullscreen';
+             }
+        };
+        // Listen for fullscreen events on the document
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+        document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+        document.addEventListener('msfullscreenchange', updateFullscreenButton);
+        // Initial check on page load
+        updateFullscreenButton();
+
+
+        // --- Reload Button Logic ---
+        const reloadButton = document.getElementById('reload-button');
+
+        reloadButton.addEventListener('click', () => {
+            updatePreview(); // Simply call the updatePreview function to re-render iframe
+        });
+
+        // --- Download Button Logic ---
+        const downloadButton = document.getElementById('download-button');
+
+        downloadButton.addEventListener('click', () => {
+            const htmlContent = editor.getValue();
+            let filename = "generated_page.html"; // Default filename
+
+            // Attempt to extract title from HTML content using regex
+            const titleMatch = htmlContent.match(/<title>(.*?)<\/title>/i);
+            if (titleMatch && titleMatch[1]) {
+                // Sanitize title for filename (remove invalid characters)
+                const pageTitle = titleMatch[1].trim().replace(/[^a-zA-Z0-9_\-]/g, '_');
+                if (pageTitle) {
+                    filename = `${pageTitle}.html`;
+                }
+            }
+
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a); // Append to body is necessary for Firefox
+
+            a.click();
+
+            document.body.removeChild(a); // Clean up
+            URL.revokeObjectURL(url); // Free up memory
+        });
+
+
+        // --- Gemini API Integration (Now calls your Supabase Edge Function) ---
+        const sendButton = document.getElementById('send-button');
+        const messageInput = document.getElementById('message-input');
+        const loadingIndicator = document.getElementById('loading-indicator');
+
+        // The GEMINI_BASE_PROMPT is now securely stored in your Supabase Edge Function.
+        // It is NOT included in this client-side file.
+
+
+        const callGeminiApi = async (userPrompt) => {
+            // Check if the function URL is set before making the call
+            if (checkFunctionUrl()) {
+                 return null; // Stop if URL is missing/placeholder
+            }
+
+            console.log("Sending prompt to Supabase Edge Function...");
+
+            // Set loading state
+            sendButton.disabled = true;
+            sendButton.classList.add('loading'); // Add class to handle UI state via CSS
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                // Get the current content of the editor to send to the function
+                const currentCode = editor.getValue();
+
+                const response = await fetch(SUPABASE_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                         // No API key needed here, the function handles it
+                    },
+                    // Send the user's prompt AND the current code in the request body
+                    body: JSON.stringify({
+                        prompt: userPrompt,
+                        currentCode: currentCode
+                    }),
+                });
+
+                // Expect JSON response from your Edge Function
+                const responseData = await response.json();
+
+                // Handle errors returned by your Edge Function (either HTTP status or error field in JSON)
+                if (!response.ok) {
+                    const errorMessage = responseData.error || `HTTP ${response.status}: ${response.statusText}`;
+                    console.error("Error response from Supabase Function:", responseData); // Log server response for debugging
+                    throw new Error(`Backend Error: ${errorMessage}`);
+                }
+
+                // Check if the function returned the expected generatedHtml
+                const generatedCode = responseData.generatedHtml;
+                 if (typeof generatedCode !== 'string') {
+                     console.warn("Unexpected response format from function:", responseData);
+                      throw new Error("Backend did not return expected 'generatedHtml' content.");
+                 }
+
+
+                return generatedCode; // Return the generated HTML
+
+            } catch (error) {
+                console.error("Error during Edge Function call:", error);
+                // Display user-friendly error message
+                alert(`Error interacting with the code generation service: ${error.message}\n\nPlease check the console for more details.`);
+                return null; // Indicate failure
+            } finally {
+                // Reset loading state
+                sendButton.disabled = false;
+                sendButton.classList.remove('loading'); // Remove loading class
+                loadingIndicator.classList.add('hidden');
+            }
+        };
+
+        const handleSend = async () => {
+            const message = messageInput.value.trim();
+            if (message) {
+                // Call the API function (now calling your Edge Function)
+                const generatedHtml = await callGeminiApi(message);
+
+                if (generatedHtml !== null) { // Check if API call was successful and returned code
+                    // *** This is where the Gemini response updates the editor ***
+                    editor.setValue(generatedHtml);
+                    // The 'change' event listener on the editor will automatically call updatePreview
+                    console.log("Editor updated with response from Edge Function.");
+                } else {
+                    console.log("Edge Function call failed or returned no content. Editor not updated.");
+                }
+                // Clear input ONLY if the call was attempted (even if failed)
+                 messageInput.value = '';
+            }
+        };
+
+        sendButton.addEventListener('click', handleSend);
+
+        // Send on Enter key press
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Prevent default newline insertion
+                handleSend();
+            }
+        });
+
+        // Ensure CodeMirror refreshes if the window is resized
+        window.addEventListener('resize', debounce(() => {
+             editor.refresh();
+        }, 150));
+
+    </script>
+
+</body>
+</html>
